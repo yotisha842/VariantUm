@@ -31,7 +31,7 @@ public class ProjectMapper {
                     Map<String, Object> figure = null;
                     if (t.getMetadataJson() != null && !t.getMetadataJson().isNull()) {
                         try {
-                            figure = objectMapper.convertValue(t.getMetadataJson(),
+                            figure = objectMapper.convertValue(t.getMetadataJson().get("figure"),
                                     new TypeReference<Map<String, Object>>() {});
                         } catch (Exception e) {
                             log.debug("figure ignored: {}", e.getMessage());

@@ -98,25 +98,26 @@ public class VariantService {
         Project project = projectService.requireOwned(userId, projectId);
         Variant variant = requireVariant(projectId, variantId);
 
-        rateLimitService.requireQuota(userId);
 
         String prompt = REGENERATE_PROMPT;
         if (req != null && req.customPrompt() != null && !req.customPrompt().isBlank()) {
             prompt += " Дополнительно: " + req.customPrompt();
         }
-        GeneratedModels.GeneratedVariant edited = aiEditSingleService.edit(
-                variantJson(variant), prompt,
-                project.getSubject(), project.getGrade(), project.getTopic(),
-                variant.getDifficulty(), firstSteps(variant));
+        try (var quota = rateLimitService.reserve(userId, maximumVariantCost(variantId))) {
+            GeneratedModels.GeneratedVariant edited = aiEditSingleService.edit(
+                    variantJson(variant), prompt,
+                    project.getSubject(), project.getGrade(), project.getTopic(),
+                    variant.getDifficulty(), firstSteps(variant));
 
-        applyToVariant(variant, edited);
+            applyToVariant(variant, edited);
 
-        rateLimitService.deductPercent(userId, variantTasksCost(variantId));
+            quota.complete(variantTasksCost(variantId));
 
-        projectService.saveVersion(project, ProjectVersion.Action.REGENERATED,
-                "Перегенерация варианта " + variant.getIndexInProject());
-        projectService.runRecommendations(project);
-        return projectService.toDetailResponse(project);
+            projectService.saveVersion(project, ProjectVersion.Action.REGENERATED,
+                    "Перегенерация варианта " + variant.getIndexInProject());
+            projectService.runRecommendations(project);
+            return projectService.toDetailResponse(project);
+        }
     }
 
     // ---- промпт-правка одного варианта ----
@@ -126,21 +127,22 @@ public class VariantService {
         Project project = projectService.requireOwned(userId, projectId);
         Variant variant = requireVariant(projectId, variantId);
 
-        rateLimitService.requireQuota(userId);
 
-        GeneratedModels.GeneratedVariant edited = aiEditSingleService.edit(
-                variantJson(variant), userPrompt,
-                project.getSubject(), project.getGrade(), project.getTopic(),
-                variant.getDifficulty(), firstSteps(variant));
+        try (var quota = rateLimitService.reserve(userId, maximumVariantCost(variantId))) {
+            GeneratedModels.GeneratedVariant edited = aiEditSingleService.edit(
+                    variantJson(variant), userPrompt,
+                    project.getSubject(), project.getGrade(), project.getTopic(),
+                    variant.getDifficulty(), firstSteps(variant));
 
-        applyToVariant(variant, edited);
+            applyToVariant(variant, edited);
 
-        rateLimitService.deductPercent(userId, variantTasksCost(variantId));
+            quota.complete(variantTasksCost(variantId));
 
-        projectService.saveVersion(project, ProjectVersion.Action.AI_EDIT_SINGLE,
-                "Правка варианта " + variant.getIndexInProject() + " через ИИ");
-        projectService.runRecommendations(project);
-        return projectService.toDetailResponse(project);
+            projectService.saveVersion(project, ProjectVersion.Action.AI_EDIT_SINGLE,
+                    "Правка варианта " + variant.getIndexInProject() + " через ИИ");
+            projectService.runRecommendations(project);
+            return projectService.toDetailResponse(project);
+        }
     }
 
     // ---- промпт-правка всего комплекта ----
@@ -149,24 +151,25 @@ public class VariantService {
     public ProjectDetailResponse aiEditAll(UUID userId, UUID projectId, String userPrompt) {
         Project project = projectService.requireOwned(userId, projectId);
 
-        rateLimitService.requireQuota(userId);
 
         List<Variant> variants = variantRepository.findByProjectIdOrderByIndexInProjectAsc(projectId);
         List<String> variantJsonList = variants.stream()
                 .map(v -> variantJson(v))
                 .toList();
 
-        GeneratedModels.GeneratedSet edited = aiEditAllService.edit(
-                variantJsonList, userPrompt,
-                project.getSubject(), project.getGrade(), project.getTopic(),
-                project.getTargetDifficulty(),
-                project.getDifficultyGradation() != null ? project.getDifficultyGradation().name() : "EQUAL");
+        try (var quota = rateLimitService.reserve(userId, variants.stream().mapToDouble(v -> maximumVariantCost(v.getId())).sum())) {
+            GeneratedModels.GeneratedSet edited = aiEditAllService.edit(
+                    variantJsonList, userPrompt,
+                    project.getSubject(), project.getGrade(), project.getTopic(),
+                    project.getTargetDifficulty(),
+                    project.getDifficultyGradation() != null ? project.getDifficultyGradation().name() : "EQUAL");
 
-        projectService.persistVariants(project, edited);
-        rateLimitService.deductPercent(userId, costService.setCost(edited));
-        projectService.saveVersion(project, ProjectVersion.Action.AI_EDIT_ALL, "Правка комплекта через ИИ");
-        projectService.runRecommendations(project);
-        return projectService.toDetailResponse(project);
+            projectService.persistVariants(project, edited);
+            quota.complete(costService.setCost(edited));
+            projectService.saveVersion(project, ProjectVersion.Action.AI_EDIT_ALL, "Правка комплекта через ИИ");
+            projectService.runRecommendations(project);
+            return projectService.toDetailResponse(project);
+        }
     }
 
     // ---- добавить вариант ----
@@ -174,7 +177,6 @@ public class VariantService {
     @Transactional
     public ProjectDetailResponse addVariant(UUID userId, UUID projectId, VariantActionRequest req) {
         Project project = projectService.requireOwned(userId, projectId);
-        rateLimitService.requireQuota(userId);
         List<Variant> variants = variantRepository.findByProjectIdOrderByIndexInProjectAsc(projectId);
         if (variants.isEmpty()) {
             throw new ResourceNotFoundException("В проекте нет вариантов для шаблона");
@@ -188,20 +190,22 @@ public class VariantService {
         }
         Integer difficulty = req != null && req.difficulty() != null ? req.difficulty() : template.getDifficulty();
 
-        GeneratedModels.GeneratedVariant generated = aiEditSingleService.edit(
-                variantJson(template), prompt,
-                project.getSubject(), project.getGrade(), project.getTopic(),
-                difficulty, firstSteps(template));
+        try (var quota = rateLimitService.reserve(userId, maximumVariantCost(template.getId()))) {
+            GeneratedModels.GeneratedVariant generated = aiEditSingleService.edit(
+                    variantJson(template), prompt,
+                    project.getSubject(), project.getGrade(), project.getTopic(),
+                    difficulty, firstSteps(template));
 
-        GeneratedModels.GeneratedVariant withIndex = new GeneratedModels.GeneratedVariant(
-                newIndex, difficulty, generated.totalEstimatedMinutes(), generated.tasks());
-        projectService.persistVariant(project, withIndex);
+            GeneratedModels.GeneratedVariant withIndex = new GeneratedModels.GeneratedVariant(
+                    newIndex, difficulty, generated.totalEstimatedMinutes(), generated.tasks());
+            projectService.persistVariant(project, withIndex);
 
-        rateLimitService.deductPercent(userId, costService.variantCost(withIndex));
+            quota.complete(costService.variantCost(withIndex));
 
-        projectService.saveVersion(project, ProjectVersion.Action.VARIANT_ADDED, "Добавлен вариант " + newIndex);
-        projectService.runRecommendations(project);
-        return projectService.toDetailResponse(project);
+            projectService.saveVersion(project, ProjectVersion.Action.VARIANT_ADDED, "Добавлен вариант " + newIndex);
+            projectService.runRecommendations(project);
+            return projectService.toDetailResponse(project);
+        }
     }
 
     // ---- перегенерация одного задания ----
@@ -211,7 +215,6 @@ public class VariantService {
         Project project = projectService.requireOwned(userId, projectId);
         Variant variant = requireVariant(projectId, variantId);
 
-        rateLimitService.requireQuota(userId);
 
         List<Task> tasks = taskRepository.findByVariantIdOrderByIndexInVariantAsc(variantId);
         Task target = tasks.stream()
@@ -223,20 +226,22 @@ public class VariantService {
         GeneratedModels.GeneratedTask gt = projectMapper.toGenerated(variant, List.of(target)).tasks().get(0);
         String taskJson = projectMapper.toJson(gt);
 
-        GeneratedModels.GeneratedTask newTask = aiEditSingleService.regenerateTask(
-                taskJson, project.getSubject(), project.getGrade());
+        try (var quota = rateLimitService.reserve(userId, LlmCostService.TASK_GRAPH)) {
+            GeneratedModels.GeneratedTask newTask = aiEditSingleService.regenerateTask(
+                    taskJson, project.getSubject(), project.getGrade());
 
-        // Обновляем только целевое задание, все остальные трогать не нужно
-        target.setText(ProjectService.cleanTaskText(newTask.text()));
-        if (newTask.answer() != null) target.setAnswer(newTask.answer());
-        if (newTask.estimatedMinutes() != null) target.setEstimatedMinutes(newTask.estimatedMinutes());
-        taskRepository.save(target);
+            // Обновляем только целевое задание, все остальные трогать не нужно
+            target.setText(ProjectService.cleanTaskText(newTask.text()));
+            if (newTask.answer() != null) target.setAnswer(newTask.answer());
+            if (newTask.estimatedMinutes() != null) target.setEstimatedMinutes(newTask.estimatedMinutes());
+            taskRepository.save(target);
 
-        rateLimitService.deductPercent(userId, costService.taskCost(target.getText(), target.getMetadataJson()));
+            quota.complete(costService.taskCost(target.getText(), target.getMetadataJson()));
 
-        projectService.saveVersion(project, ProjectVersion.Action.AI_EDIT_SINGLE,
-                "Перегенерация задания " + target.getIndexInVariant() + " варианта " + variant.getIndexInProject());
-        return projectService.toDetailResponse(project);
+            projectService.saveVersion(project, ProjectVersion.Action.AI_EDIT_SINGLE,
+                    "Перегенерация задания " + target.getIndexInVariant() + " варианта " + variant.getIndexInProject());
+            return projectService.toDetailResponse(project);
+        }
     }
 
     // ---- удалить вариант ----
@@ -265,6 +270,10 @@ public class VariantService {
     }
 
     // ---- helpers ----
+
+    private double maximumVariantCost(UUID variantId) {
+        return Math.max(1, taskRepository.findByVariantIdOrderByIndexInVariantAsc(variantId).size()) * LlmCostService.TASK_GRAPH;
+    }
 
     /** Стоимость (в %) персистентных заданий варианта — для списания лимита после правки. */
     private double variantTasksCost(UUID variantId) {

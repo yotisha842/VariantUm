@@ -81,6 +81,18 @@ public class LlmCostService {
         return Math.max(1, variantsCount) * Math.max(1, tasksPerVariant) * TASK_AVG;
     }
 
+    public double generationBudget(ru.variantum.dto.request.CreateProjectRequest request) {
+        int tasks = request.criteria() != null ? request.criteria().tasksPerVariant()
+                : referenceTaskCount(request.referenceText());
+        return Math.max(1, request.params().variantsCount()) * Math.max(1, tasks) * TASK_GRAPH;
+    }
+
+    public int referenceTaskCount(String text) {
+        if (text == null || text.isBlank()) return 1;
+        return (int) Math.max(1, java.util.Arrays.stream(text.split("\\n\\s*\\n"))
+                .filter(part -> part.trim().length() > 10).count());
+    }
+
     /** Лёгкая проекция задания для расчёта стоимости (текст + JSON фигуры). */
     public record TaskCostView(String text, JsonNode figureJson) {}
 }

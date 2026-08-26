@@ -5,6 +5,7 @@ import type {
   ResolvedVariant,
   SubmitAnswersRequest,
   Submission,
+  SubmissionReceipt,
   TeacherReviewEntry,
   AttachmentInfo,
 } from '../types/api';
@@ -25,7 +26,7 @@ export const submissionsApi = {
     publicClient.post<ResolvedVariant>(`/form/${token}/resolve-name`, { name }).then((r) => r.data),
 
   submitAnswers: (token: string, data: SubmitAnswersRequest) =>
-    publicClient.post<Submission>(`/form/${token}/submit`, data).then((r) => r.data),
+    publicClient.post<SubmissionReceipt>(`/form/${token}/submit`, data).then((r) => r.data),
 
   // ---- Private (требуют JWT-cookie) ----
 
@@ -38,11 +39,12 @@ export const submissionsApi = {
   saveReview: (submissionId: string, taskReviews: TeacherReviewEntry[]) =>
     apiClient.patch<Submission>(`/submissions/${submissionId}/review`, { taskReviews }).then((r) => r.data),
 
-  uploadAttachment: (token: string, submissionId: string, file: File) => {
+  uploadAttachment: (token: string, submissionId: string, attachmentToken: string, file: File) => {
     const fd = new FormData();
     fd.append('file', file);
     return publicClient.post<AttachmentInfo>(
       `/form/${token}/submissions/${submissionId}/attachments`, fd,
+      { headers: { 'Content-Type': 'multipart/form-data', 'X-Submission-Token': attachmentToken } },
     ).then((r) => r.data);
   },
 

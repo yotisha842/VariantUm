@@ -27,14 +27,8 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
+    baseline-version: 0
     locations: classpath:db/migration
-
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:}
-      timeout: 5s
 
   servlet:
     multipart:
@@ -69,10 +63,11 @@ app:
 
   jwt:
     secret: ${JWT_SECRET:CHANGE_ME_to_long_random_base64_string_at_least_64_bytes_dev_only}
-    access-token-ttl-seconds: ${JWT_ACCESS_TOKEN_TTL:604800}
+    access-token-ttl-seconds: ${JWT_ACCESS_TOKEN_TTL:900}
     refresh-token-ttl-seconds: ${JWT_REFRESH_TOKEN_TTL:2592000}
     cookie-name-access: variantum_access
     cookie-name-refresh: variantum_refresh
+    secure-cookies: false
 
   rate-limit:
     llm-per-hour: ${RATE_LIMIT_LLM_PER_HOUR:30}

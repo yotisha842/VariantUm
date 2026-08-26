@@ -1,10 +1,8 @@
 # ВариантУм
 
-> **ИИ-сервис для автоматической генерации равносложных вариантов школьных контрольных работ.**
+> **Сервис генерации вариантов контрольных работ по эталону или заданным критериям, с редактированием и экспортом в PDF/DOCX.**
 
 🥉 **3 место** · Хакатон СберОбразование × Школа 21 «ИИ для образования: автоматизация рутинных задач»
-
-Один эталон из учебника — и за 5 минут вместо 2 часов учитель получает готовый комплект вариантов: одинаковых по сложности, разных по содержанию, сразу с ответами и экспортом в PDF/DOCX.
 
 ![Демо ВариантУм](docs/demo.gif)
 
@@ -22,9 +20,7 @@
 
 ## Проблема
 
-Учителя тратят от **40 минут до 2 часов** на ручное создание нескольких вариантов одной контрольной.  
-При этом почти половина аудитории — педагоги 45+, которым сложно работать с перегруженными инструментами и ИИ-чатами.  
-Обычный LLM-чат генерирует текст, но не решает методическую задачу: сохранить одинаковую сложность и структуру вариантов.
+При подготовке контрольной важно сохранить одинаковую сложность и структуру разных вариантов заданий.
 
 ---
 
@@ -87,13 +83,13 @@
 
 | Слой | Технологии |
 |---|---|
-| **Backend** | Java 21, Spring Boot 3.2 (Web, WebFlux, Security/JWT, Data JPA, Data Redis) |
-| **Frontend** | React 18 + TypeScript, Vite, TanStack Query, Zustand, Tailwind CSS, Radix UI, Tiptap, KaTeX, MathLive |
-| **БД и хранилище** | PostgreSQL 16 + Flyway, Redis 7, MinIO (S3-совместимое) |
+| **Backend** | Java 21, Spring Boot 3.2 (Web, WebFlux, Security/JWT, Data JPA) |
+| **Frontend** | React 18 + TypeScript, Vite, TanStack Query, Zustand, Tailwind CSS, KaTeX, MathLive |
+| **БД и хранилище** | PostgreSQL 16 + Flyway, MinIO (S3-совместимое) |
 | **LLM** | GigaChat API (мультимодель: Lite / Pro / Max), авто-фолбэк 402 → Lite |
 | **Парсинг** | Apache PDFBox, Apache POI, Tess4J (Tesseract OCR, русская модель) |
-| **Экспорт** | iText 7 (PDF), docx4j (DOCX), SVG-рендеринг формул и графиков |
-| **Асинхронные события** | Apache Kafka, Spring Kafka (producer в backend, consumer в отдельном сервисе `variantum-worker`) |
+| **Экспорт** | iText 8 (PDF), docx4j (DOCX), SVG-рендеринг формул и графиков |
+| **Асинхронные события** | Apache Kafka, Spring Kafka (producer в backend, consumer в `variantum-worker` на Kotlin/JVM 21) |
 | **Инфраструктура** | Docker + docker-compose, Nginx (reverse proxy + статика) |
 
 ---
@@ -101,39 +97,15 @@
 ## Архитектура
 
 ```
-Browser
-   │
-   ▼
-Nginx (80)
-   ├── /          → React SPA (static)
-   └── /api       → Spring Boot (8080)
-                       ├── AuthController     JWT auth + refresh tokens
-                       ├── ProjectController  проекты / комплекты заданий
-                       ├── VariantController  варианты, AI-правка
-                       ├── AnalyzeController  анализ эталона через GigaChat
-                       ├── ExportController   PDF / DOCX
-                       ├── FormController     онлайн-форма для учеников
-                       ├── FileController     загрузка файлов → MinIO
-                       └── LimitsController   лимиты на генерацию
-                                │
-                    ┌───────────┼───────────┬───────────┐
-                    ▼           ▼           ▼           ▼
-               PostgreSQL     Redis      MinIO       Kafka
-               (данные)     (кэш/сессии) (файлы)   (события)
-                                │                       │
-                                ▼                       ▼
-                          GigaChat API          variantum-worker (8081)
-                     (Lite / Pro / Max)          независимый сервис —
-                                                  слушает variantum.export.completed
-                                                  и variantum.document.analyzed,
-                                                  пишет статистику в свои таблицы
+Browser → Nginx (80)
+            ├── /     → React SPA
+            └── /api  → Spring Boot (8080)
+                            ├── PostgreSQL + MinIO
+                            ├── GigaChat API
+                            └── Kafka → Kotlin worker (8081) → PostgreSQL
 ```
 
-Экспорт (PDF/DOCX) и анализ эталона синхронно отдают результат вызывающему,
-как и раньше — публикация события в Kafka происходит уже после того, как
-ответ готов, неблокирующе (fire-and-forget), и не влияет на основной запрос.
-Если Kafka недоступна или отключена (`KAFKA_ENABLED=false`), backend и API
-продолжают работать без изменений.
+Backend публикует в Kafka события экспорта и анализа документов; worker сохраняет статистику. Публикацию можно отключить через `KAFKA_ENABLED=false`.
 
 ---
 
@@ -148,18 +120,18 @@ variantum/
 │       ├── domain/     JPA-сущности
 │       ├── event/      Kafka-producer доменных событий (export/analyze)
 │       └── config/     конфигурация (Security, GigaChat, MinIO, Kafka)
-├── worker/             variantum-worker — Kafka-consumer (Maven, Java 21)
-│   └── src/main/java/ru/variantum/worker/
+├── worker/             variantum-worker — Kafka-consumer (Maven, Kotlin/JVM 21)
+│   └── src/main/kotlin/ru/variantum/worker/
 │       ├── listener/   @KafkaListener на топики backend'а
 │       ├── domain/     собственные JPA-сущности (своя часть схемы БД)
 │       └── controller/ /stats — статистика по принятым событиям
 ├── frontend/           React + Vite + TypeScript
 │   └── src/
-│       ├── pages/      9 экранов приложения
+│       ├── pages/      экраны приложения
 │       ├── features/   экспорт, редактор
 │       ├── tour/       интерактивный онбординг
 │       └── api/        клиентский слой
-├── docker-compose.yml  postgres + redis + minio + kafka + backend + worker + frontend + nginx
+├── docker-compose.yml  postgres + minio + kafka + backend + worker + frontend/Nginx
 ├── .env.example        пример переменных окружения
 └── README.md
 ```
@@ -182,19 +154,15 @@ docker compose up --build -d
 
 Миграции БД (Flyway) применяются автоматически при старте.
 
+GitHub Actions проверяет сборку backend, worker и frontend, запускает тесты и линтер.
+
 ---
 
 ## Моя роль
 
-Backend (Java / Spring Boot):
-- REST API на Spring Boot 3 (Web / WebFlux), аутентификация и refresh-токены через Spring Security + JWT;
-- проектирование доменной модели и схемы PostgreSQL, миграции через Flyway; кэш и сессии на Redis;
-- интеграция GigaChat API с авто-фолбэком, распознавание документов (PDFBox / POI / Tesseract OCR);
-- экспорт комплектов в PDF / DOCX (iText, docx4j), загрузка файлов в MinIO (S3);
-- вынес аналитику экспорта и анализа документов в отдельный сервис `variantum-worker`:
-  backend публикует события в Kafka (producer), worker их слушает и хранит статистику
-  в своих таблицах (consumer) — независимый деплой, чёткая граница ответственности;
-- развёртывание стека в Docker / docker-compose за Nginx.
+- Backend на Java / Spring Boot: REST API, авторизация через Spring Security + JWT, модель PostgreSQL и миграции Flyway.
+- Интеграция GigaChat, распознавание документов, экспорт PDF/DOCX и хранение файлов в MinIO.
+- Kafka и Kotlin worker для аналитики; развёртывание в Docker Compose за Nginx.
 
 ## Команда
 
@@ -202,9 +170,5 @@ Backend (Java / Spring Boot):
 |---|---|---|
 | 👩‍💻 | **Кристина** | Backend (Java/Spring), БД, интеграция с LLM, Prompt Engineering |
 | 👩‍💻 | **Соня** | Frontend (React/TS), UI-дизайн, Backend, Prompt Engineering |
-
-## 🏆 Награды
-
-🥉 **3 место** на хакатоне СберОбразование × Школа 21 «ИИ для образования».
 
 📄 [Диплом и материалы проекта (Google Drive)](https://drive.google.com/drive/folders/1aJMsg6jxIOsm5Cs1T9uVablbP38cRU91?usp=sharing)

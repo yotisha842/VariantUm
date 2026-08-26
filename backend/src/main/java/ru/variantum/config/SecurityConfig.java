@@ -43,15 +43,19 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .exceptionHandling(errors -> errors.authenticationEntryPoint((request, response, error) -> {
+                    response.setStatus(401);
+                    response.setContentType("application/json");
+                    response.getWriter().write("{\"error\":\"UNAUTHORIZED\"}");
+                }))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST,
-                                "/auth/register", "/auth/login", "/auth/refresh").permitAll()
+                                "/auth/register", "/auth/login", "/auth/refresh", "/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/health", "/actuator/health",
                                 "/swagger-ui/**", "/swagger-ui.html",
-                                "/v3/api-docs/**",
-                                "/diagnostic/**").permitAll()
+                                "/v3/api-docs/**").permitAll()
                         .requestMatchers("/form/**").permitAll()
                         .anyRequest().authenticated()
                 )

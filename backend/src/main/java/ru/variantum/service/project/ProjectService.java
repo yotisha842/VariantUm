@@ -47,12 +47,11 @@ public class ProjectService {
     @Transactional
     public ProjectDetailResponse create(UUID userId, CreateProjectRequest req) {
         // Проверяем квоту до запуска дорогостоящей генерации
-        rateLimitService.requireQuota(userId);
 
         Project project = buildProjectEntity(userId, req);
         project = projectRepository.save(project);
 
-        try {
+        try (var quota = rateLimitService.reserve(userId, costService.generationBudget(req))) {
             GeneratedModels.GeneratedSet set;
             if ("FROM_CRITERIA".equals(req.mode())) {
                 set = generateFromCriteriaService.generate(req.criteria(), req.params());
@@ -65,13 +64,15 @@ public class ProjectService {
             persistVariants(project, set);
 
             // Списываем стоимость генерации в процентах дневного лимита
-            rateLimitService.deductPercent(userId, costService.setCost(set));
+            quota.complete(costService.setCost(set));
 
             project.setStatus(Project.Status.READY);
             project = projectRepository.save(project);
 
             saveVersion(project, ProjectVersion.Action.GENERATED, "Первоначальная генерация");
             runRecommendations(project);
+        } catch (ru.variantum.exception.RateLimitException e) {
+            throw e;
         } catch (Exception e) {
             project.setStatus(Project.Status.FAILED);
             log.error("Ошибка генерации проекта {}: {}", project.getId(), e.getMessage(), e);
@@ -128,7 +129,6 @@ public class ProjectService {
      */
     @Transactional
     public ProjectDetailResponse retryGeneration(UUID userId, UUID projectId) {
-        rateLimitService.requireQuota(userId);
 
         Project project = projectRepository.findByIdAndUserId(projectId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Проект не найден"));
@@ -136,7 +136,7 @@ public class ProjectService {
         project.setStatus(Project.Status.GENERATING);
         project = projectRepository.save(project);
 
-        try {
+        try (var quota = rateLimitService.reserve(userId, retryBudget(project))) {
             CreateProjectRequest.ParamsData params = reconstructParams(project);
             GeneratedModels.GeneratedSet set;
 
@@ -149,12 +149,14 @@ public class ProjectService {
             }
 
             persistVariants(project, set);
-            rateLimitService.deductPercent(userId, costService.setCost(set));
+            quota.complete(costService.setCost(set));
 
             project.setStatus(Project.Status.READY);
             project = projectRepository.save(project);
             saveVersion(project, ProjectVersion.Action.GENERATED, "Повторная генерация");
             runRecommendations(project);
+        } catch (ru.variantum.exception.RateLimitException e) {
+            throw e;
         } catch (Exception e) {
             project.setStatus(Project.Status.FAILED);
             log.error("Ошибка повторной генерации проекта {}: {}", project.getId(), e.getMessage(), e);
@@ -162,6 +164,13 @@ public class ProjectService {
         }
 
         return toDetailResponse(project);
+    }
+
+    private double retryBudget(Project project) {
+        var params = reconstructParams(project);
+        int tasks = project.getMode() == Project.Mode.FROM_CRITERIA
+                ? reconstructCriteria(project, params).tasksPerVariant() : costService.referenceTaskCount(project.getReferenceText());
+        return Math.max(1, params.variantsCount()) * Math.max(1, tasks) * LlmCostService.TASK_GRAPH;
     }
 
     private CreateProjectRequest.ParamsData reconstructParams(Project project) {

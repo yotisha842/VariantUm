@@ -19,7 +19,7 @@ function TourCloseNavigator() {
     if (wasActive && !tourActive && location.pathname === '/compare') {
       navigate('/', { replace: true });
     }
-  }, [tourActive]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tourActive]);
 
   return null;
 }

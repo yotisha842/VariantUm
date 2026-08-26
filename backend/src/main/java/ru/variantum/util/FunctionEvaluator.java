@@ -11,11 +11,13 @@ import org.springframework.stereotype.Component;
 public class FunctionEvaluator {
 
     public double evaluate(String expression, double x) {
+        if (expression == null || expression.isBlank() || expression.length() > 500) throw new IllegalArgumentException("Invalid expression length");
         String expr = expression.trim()
                 .replace(" ", "")
                 .replace("π", "pi")
-                .replace("**", "^");
-        return new Parser(expr, x).parseExpr();
+                .replace("**", "^")
+                .replaceAll("\\bMath\\.", "").replaceAll("\\bPI\\b", "pi").replaceAll("\\bE\\b", "e");
+        return new Parser(expr, x).parseAll();
     }
 
     public boolean isValid(String expression) {
@@ -33,11 +35,18 @@ public class FunctionEvaluator {
         private final String expr;
         private final double x;
         private int pos;
+        private int depth;
 
         Parser(String expr, double x) {
             this.expr = expr;
             this.x = x;
             this.pos = 0;
+        }
+
+        double parseAll() {
+            double value = parseExpr();
+            if (pos != expr.length()) throw new IllegalArgumentException("Unexpected expression suffix");
+            return Double.isFinite(value) ? value : Double.NaN;
         }
 
         double parseExpr() {
@@ -64,8 +73,8 @@ public class FunctionEvaluator {
 
         // Унарный минус имеет МЕНЬШИЙ приоритет чем ^, поэтому -x^2 = -(x^2), а не (-x)^2
         private double parseUnary() {
-            if (pos < expr.length() && expr.charAt(pos) == '-') { pos++; return -parsePower(); }
-            if (pos < expr.length() && expr.charAt(pos) == '+') { pos++; }
+            if (pos < expr.length() && expr.charAt(pos) == '-') { pos++; return -parseUnary(); }
+            if (pos < expr.length() && expr.charAt(pos) == '+') { pos++; return parseUnary(); }
             return parsePower();
         }
 
@@ -80,25 +89,32 @@ public class FunctionEvaluator {
         }
 
         private double parsePrimary() {
-            if (pos >= expr.length()) return 0;
+            if (++depth > 64) throw new IllegalArgumentException("Expression nesting limit");
+            try {
+            if (pos >= expr.length()) throw new IllegalArgumentException("Incomplete expression");
             char c = expr.charAt(pos);
 
             if (c == '(') {
                 pos++;
                 double val = parseExpr();
-                if (pos < expr.length() && expr.charAt(pos) == ')') pos++;
+                if (pos >= expr.length() || expr.charAt(pos) != ')') throw new IllegalArgumentException("Missing closing parenthesis");
+                pos++;
                 return val;
             }
 
             if (Character.isDigit(c) || c == '.') {
                 int start = pos;
-                while (pos < expr.length() && (Character.isDigit(expr.charAt(pos)) || expr.charAt(pos) == '.')) pos++;
-                return Double.parseDouble(expr.substring(start, pos));
+                var number = java.util.regex.Pattern.compile("(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?").matcher(expr.substring(start));
+                if (!number.lookingAt()) throw new IllegalArgumentException("Invalid number");
+                pos += number.end();
+                double value = Double.parseDouble(number.group());
+                if (!Double.isFinite(value)) throw new IllegalArgumentException("Invalid number");
+                return value;
             }
 
             if (Character.isLetter(c)) {
                 int start = pos;
-                while (pos < expr.length() && Character.isLetter(expr.charAt(pos))) pos++;
+                while (pos < expr.length() && Character.isLetterOrDigit(expr.charAt(pos))) pos++;
                 String name = expr.substring(start, pos);
                 return switch (name) {
                     // Физические переменные — псевдонимы x (генерируются GigaChat для физики)
@@ -111,23 +127,30 @@ public class FunctionEvaluator {
                     case "tan" -> Math.tan(parseParenArg());
                     case "sqrt" -> { double v = parseParenArg(); yield v < 0 ? Double.NaN : Math.sqrt(v); }
                     case "abs" -> Math.abs(parseParenArg());
-                    case "ln", "log" -> { double v = parseParenArg(); yield v <= 0 ? Double.NaN : Math.log(v); }
+                    case "ln" -> { double v = parseParenArg(); yield v <= 0 ? Double.NaN : Math.log(v); }
+                    case "log", "log10", "lg" -> Math.log10(parseParenArg());
+                    case "asin" -> Math.asin(parseParenArg());
+                    case "acos" -> Math.acos(parseParenArg());
+                    case "atan" -> Math.atan(parseParenArg());
+                    case "tg" -> Math.tan(parseParenArg());
                     case "exp" -> Math.exp(parseParenArg());
                     default -> throw new IllegalArgumentException("Unknown function: " + name);
                 };
             }
 
             throw new IllegalArgumentException("Unexpected char: " + c);
+            } finally { depth--; }
         }
 
         private double parseParenArg() {
             if (pos < expr.length() && expr.charAt(pos) == '(') {
                 pos++;
                 double val = parseExpr();
-                if (pos < expr.length() && expr.charAt(pos) == ')') pos++;
+                if (pos >= expr.length() || expr.charAt(pos) != ')') throw new IllegalArgumentException("Missing closing parenthesis");
+                pos++;
                 return val;
             }
-            return parsePrimary();
+            throw new IllegalArgumentException("Function argument requires parentheses");
         }
     }
 }

@@ -109,6 +109,11 @@ public class GlobalExceptionHandler {
         ));
     }
 
+    @ExceptionHandler(StorageException.class)
+    public ResponseEntity<Map<String, Object>> storage(StorageException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("error", "STORAGE_UNAVAILABLE", "message", ex.getMessage()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> generic(Exception ex) {
         log.error("Unhandled exception", ex);

@@ -25,7 +25,8 @@ public record AppProperties(
             long accessTokenTtlSeconds,
             long refreshTokenTtlSeconds,
             String cookieNameAccess,
-            String cookieNameRefresh
+            String cookieNameRefresh,
+            boolean secureCookies
     ) {}
 
     public record RateLimit(

@@ -1,7 +1,6 @@
+import { renderMathHtml } from '../utils/mathRendering';
 import { useMemo } from 'react';
 import type { CSSProperties } from 'react';
-import katex from 'katex';
-import 'katex/dist/katex.min.css';
 
 /**
  * Рендерит текст, в котором математика размечена LaTeX'ем:
@@ -90,17 +89,7 @@ function tokenize(input: string): Segment[] {
   return segments;
 }
 
-function renderMath(tex: string, display: boolean): string {
-  try {
-    return katex.renderToString(normalizeEnvironments(tex), {
-      displayMode: display,
-      throwOnError: false,
-      strict: false,
-    });
-  } catch {
-    return tex;
-  }
-}
+
 
 export function MathText({ children, className, style }: { children: string | null | undefined; className?: string; style?: CSSProperties }) {
   const segments = useMemo(() => tokenize(children ?? ''), [children]);
@@ -113,7 +102,7 @@ export function MathText({ children, className, style }: { children: string | nu
         ) : (
           <span
             key={i}
-            dangerouslySetInnerHTML={{ __html: renderMath(seg.value, seg.display) }}
+            dangerouslySetInnerHTML={{ __html: renderMathHtml(normalizeEnvironments(seg.value), seg.display) }}
           />
         ),
       )}

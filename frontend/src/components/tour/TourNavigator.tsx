@@ -13,7 +13,7 @@ export default function TourNavigator() {
     if (step?.navigateTo && step.navigateTo !== location.pathname) {
       navigate(step.navigateTo);
     }
-  }, [currentStep, tourActive]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentStep, tourActive]);
 
   return null;
 }

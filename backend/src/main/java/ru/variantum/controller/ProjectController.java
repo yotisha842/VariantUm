@@ -45,9 +45,8 @@ public class ProjectController {
     private final ProjectRepository projectRepository;
     private final UploadedFileRepository uploadedFileRepository;
     private final MinioStorageService minioStorageService;
-    private final VisionExtractionService visionExtractionService;
-    private final TextCleanupService textCleanupService;
-    private final FileParserRegistry fileParserRegistry;
+    private final ru.variantum.service.parser.DocumentExtractionService extraction;
+    private final ru.variantum.service.ratelimit.RateLimitService quotas;
 
     @PostMapping
     public ResponseEntity<ProjectDetailResponse> create(@Valid @RequestBody CreateProjectRequest req) {
@@ -155,33 +154,18 @@ public class ProjectController {
 
         byte[] bytes;
         try (InputStream is = minioStorageService.getStream(uploadedFile.getStorageKey())) {
-            bytes = is.readAllBytes();
+            bytes = is.readNBytes((int) ru.variantum.util.UploadValidation.MAX_BYTES + 1);
+            if (bytes.length > ru.variantum.util.UploadValidation.MAX_BYTES) throw new IllegalArgumentException("Файл больше 10 МБ");
         } catch (Exception e) {
             throw new RuntimeException("Не удалось прочитать файл из хранилища: " + e.getMessage(), e);
         }
 
         String mimeType = uploadedFile.getMimeType();
         String filename = uploadedFile.getFilename();
-        String extractedText;
-        String parserUsed;
-        try {
-            if (mimeType != null && mimeType.startsWith("image/")) {
-                try {
-                    extractedText = visionExtractionService.extract(bytes, filename, mimeType);
-                    parserUsed = "gigachat-vision";
-                } catch (Exception visionErr) {
-                    log.warn("Vision не сработал для {} при повторном распознавании, фолбэк: {}", filename, visionErr.getMessage());
-                    extractedText = textCleanupService.cleanup(fileParserRegistry.parseBytes(bytes, mimeType, filename));
-                    parserUsed = "tesseract+cleanup";
-                }
-            } else {
-                String parsed = fileParserRegistry.parseBytes(bytes, mimeType, filename);
-                extractedText = textCleanupService.cleanup(parsed);
-                parserUsed = "parser+cleanup";
-            }
-        } catch (Exception e) {
-            throw new RuntimeException("Не удалось распознать текст: " + e.getMessage(), e);
-        }
+        try (var quota = quotas.reserve(userId, ru.variantum.service.ratelimit.LlmCostService.PARSE_PER_FILE)) {
+        var parsed = extraction.extract(bytes, mimeType, filename, true);
+        String extractedText = parsed.text();
+        String parserUsed = parsed.parser();
 
         uploadedFile.setParsedText(extractedText);
         uploadedFile.setParserUsed(parserUsed);
@@ -191,6 +175,8 @@ public class ProjectController {
         project = projectRepository.save(project);
         projectService.saveVersion(project, ProjectVersion.Action.MANUAL_EDIT, "Повторное распознавание файла");
 
+        quota.complete(ru.variantum.service.ratelimit.LlmCostService.PARSE_PER_FILE);
         return projectService.toDetailResponse(project);
+        }
     }
 }

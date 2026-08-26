@@ -1,9 +1,7 @@
-version: "3.9"
-
 # ============================================================
 # ВариантУм — локальный стек для разработки и демо
 # Команды:
-#   docker compose up -d postgres redis minio   # только инфра
+#   docker compose up -d postgres minio   # только инфра
 #   docker compose up --build -d                # всё, включая backend/frontend
 # ============================================================
 
@@ -18,28 +16,13 @@ services:
       POSTGRES_USER: ${DB_USER:-variantum}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme_strong_password}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-variantum} -d ${DB_NAME:-variantum}"]
       interval: 5s
       timeout: 5s
-      retries: 10
-
-  redis:
-    image: redis:7-alpine
-    container_name: variantum-redis
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
       retries: 10
 
   minio:
@@ -51,7 +34,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-changeme_minio_secret}
     ports:
-      - "9000:9000"   # S3 API
+      - "127.0.0.1:9000:9000"   # S3 API
       - "9001:9001"   # Web console
     volumes:
       - minio-data:/data
@@ -66,7 +49,7 @@ services:
     container_name: variantum-kafka
     restart: unless-stopped
     ports:
-      - "9092:9092"
+      - "127.0.0.1:9092:9092"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -96,10 +79,10 @@ services:
       minio:
         condition: service_healthy
     entrypoint: >
-      /bin/sh -c "
+      /bin/sh -ec "
       mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY:-minioadmin} ${MINIO_SECRET_KEY:-changeme_minio_secret};
-      mc mb --ignore-existing local/${MINIO_BUCKET:-variantum-files};
-      mc anonymous set download local/${MINIO_BUCKET:-variantum-files};
+      mc mb --ignore-existing local/${MINIO_BUCKET:-variantum-files} &&
+      mc anonymous set none local/${MINIO_BUCKET:-variantum-files} &&
       exit 0;
       "
 
@@ -112,10 +95,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
       kafka:
         condition: service_started
     environment:
@@ -125,8 +106,6 @@ services:
       DB_NAME: ${DB_NAME:-variantum}
       DB_USER: ${DB_USER:-variantum}
       DB_PASSWORD: ${DB_PASSWORD:-changeme_strong_password}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
       MINIO_ENDPOINT: http://minio:9000
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
@@ -143,15 +122,14 @@ services:
       GIGACHAT_TIMEOUT_SECONDS: ${GIGACHAT_TIMEOUT_SECONDS:-180}
       GIGACHAT_MAX_TOKENS: ${GIGACHAT_MAX_TOKENS:-32768}
       JWT_SECRET: ${JWT_SECRET:-CHANGE_ME_to_long_random_base64_string_at_least_64_bytes_dev_only}
-      JWT_ACCESS_TOKEN_TTL: ${JWT_ACCESS_TOKEN_TTL:-604800}
+      JWT_ACCESS_TOKEN_TTL: ${JWT_ACCESS_TOKEN_TTL:-900}
       JWT_REFRESH_TOKEN_TTL: ${JWT_REFRESH_TOKEN_TTL:-2592000}
       RATE_LIMIT_LLM_PER_HOUR: ${RATE_LIMIT_LLM_PER_HOUR:-30}
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:5173}
-      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: "false"
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_ENABLED: ${KAFKA_ENABLED:-true}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
 
   # Отдельный сервис: слушает Kafka-события backend'а (экспорт готов / документ проанализирован)
   # и ведёт по ним статистику в своих таблицах — независимый деплой, своя граница ответственности.
@@ -174,7 +152,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-changeme_strong_password}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     ports:
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
 
   frontend:
     build:
@@ -187,10 +165,9 @@ services:
     depends_on:
       - backend
     ports:
-      - "80:80"
+      - "127.0.0.1:80:80"
 
 volumes:
   postgres-data:
-  redis-data:
   minio-data:
   kafka-data:

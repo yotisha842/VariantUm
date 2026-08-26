@@ -22,6 +22,7 @@ import ru.variantum.util.FormulaConverter;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
+import java.io.IOException;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -573,63 +574,17 @@ public class ExportService {
      */
     private String fetchImageAsDataUrl(String url) {
         if (url == null || url.isBlank()) return null;
-        if (url.startsWith("data:")) return url;
-        url = url.replaceAll("\\s+", "");
-        try {
-            java.net.URLConnection conn = new java.net.URI(url).toURL().openConnection();
-            conn.setConnectTimeout(6000);
-            conn.setReadTimeout(10000);
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0");
-            conn.connect();
-            String mime = conn.getContentType();
-            if (mime == null || !mime.startsWith("image/")) mime = guessMime(url);
-            int sc = mime.indexOf(';');
-            if (sc > 0) mime = mime.substring(0, sc).trim();
-            try (InputStream is = conn.getInputStream()) {
-                byte[] bytes = is.readAllBytes();
-                return "data:" + mime + ";base64," + Base64.getEncoder().encodeToString(bytes);
-            }
-        } catch (Exception e) {
-            log.warn("Не удалось загрузить изображение {}: {}", url, e.getMessage());
-            return null;
-        }
+        try { return ImageLoader.load(url).dataUrl(); }
+        catch (IOException e) { throw new IllegalArgumentException("Не удалось получить изображение для экспорта", e); }
     }
 
-    /** Декодирует data URL в байты или скачивает внешний URL. */
     private byte[] resolveImageBytes(String url) {
         if (url == null || url.isBlank()) return null;
-        if (url.startsWith("data:")) {
-            int commaIdx = url.indexOf(',');
-            if (commaIdx < 0) return null;
-            try {
-                return Base64.getDecoder().decode(url.substring(commaIdx + 1).replaceAll("\\s", ""));
-            } catch (Exception e) {
-                return null;
-            }
-        }
-        url = url.replaceAll("\\s+", "");
-        try {
-            java.net.URLConnection conn = new java.net.URI(url).toURL().openConnection();
-            conn.setConnectTimeout(6000);
-            conn.setReadTimeout(10000);
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0");
-            try (InputStream is = conn.getInputStream()) {
-                return is.readAllBytes();
-            }
-        } catch (Exception e) {
-            log.warn("Не удалось загрузить изображение {}: {}", url, e.getMessage());
-            return null;
-        }
+        try { return ImageLoader.load(url).bytes(); }
+        catch (IOException e) { throw new IllegalArgumentException("Не удалось получить изображение для экспорта", e); }
     }
 
-    private String guessMime(String url) {
-        String u = url.toLowerCase();
-        if (u.contains(".png")) return "image/png";
-        if (u.contains(".gif")) return "image/gif";
-        if (u.contains(".webp")) return "image/webp";
-        if (u.contains(".svg")) return "image/svg+xml";
-        return "image/jpeg";
-    }
+
 
     private String extractJsonString(String json, String key) {
         Pattern p = Pattern.compile("\"" + key + "\"\\s*:\\s*\"([^\"]+)\"");

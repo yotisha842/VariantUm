@@ -1,6 +1,9 @@
 package ru.variantum.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import jakarta.persistence.LockModeType;
 import ru.variantum.domain.FormStudent;
 
 import java.util.List;
@@ -9,6 +12,10 @@ import java.util.UUID;
 
 public interface FormStudentRepository extends JpaRepository<FormStudent, UUID> {
     Optional<FormStudent> findByAccessToken(String token);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from FormStudent s where s.accessToken = :token")
+    Optional<FormStudent> findByAccessTokenForUpdate(String token);
+
     List<FormStudent> findByAssignmentId(UUID assignmentId);
     long countByAssignmentId(UUID assignmentId);
     List<FormStudent> findByAssignmentIdAndFullNameIgnoreCase(UUID assignmentId, String name);

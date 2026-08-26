@@ -1,9 +1,0 @@
-C:\Users\yotisha\tisha\hacaton\hacaton_variant\VariantUm_final\worker\src\main\java\ru\variantum\worker\event\ExportCompletedEvent.java
-C:\Users\yotisha\tisha\hacaton\hacaton_variant\VariantUm_final\worker\src\main\java\ru\variantum\worker\domain\ExportEventRecord.java
-C:\Users\yotisha\tisha\hacaton\hacaton_variant\VariantUm_final\worker\src\main\java\ru\variantum\worker\event\DocumentAnalyzedEvent.java
-C:\Users\yotisha\tisha\hacaton\hacaton_variant\VariantUm_final\worker\src\main\java\ru\variantum\worker\repository\ExportEventRepository.java
-C:\Users\yotisha\tisha\hacaton\hacaton_variant\VariantUm_final\worker\src\main\java\ru\variantum\worker\domain\AnalysisEventRecord.java
-C:\Users\yotisha\tisha\hacaton\hacaton_variant\VariantUm_final\worker\src\main\java\ru\variantum\worker\repository\AnalysisEventRepository.java
-C:\Users\yotisha\tisha\hacaton\hacaton_variant\VariantUm_final\worker\src\main\java\ru\variantum\worker\controller\StatsController.java
-C:\Users\yotisha\tisha\hacaton\hacaton_variant\VariantUm_final\worker\src\main\java\ru\variantum\worker\listener\AnalyticsEventListener.java
-C:\Users\yotisha\tisha\hacaton\hacaton_variant\VariantUm_final\worker\src\main\java\ru\variantum\worker\WorkerApplication.java

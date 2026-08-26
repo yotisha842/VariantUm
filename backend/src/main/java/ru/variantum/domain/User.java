@@ -44,14 +44,6 @@ public class User {
     @Column(name = "deleted_at")
     private OffsetDateTime deletedAt;
 
-    @Builder.Default
-    @Column(name = "tasks_used", nullable = false)
-    private int tasksUsed = 0;
-
-    @Builder.Default
-    @Column(name = "tasks_limit", nullable = false)
-    private int tasksLimit = 100;
-
     /** Израсходовано процентов дневного лимита нейросети (0..100). Сбрасывается ежедневно. */
     @Builder.Default
     @Column(name = "daily_percent_used", nullable = false)

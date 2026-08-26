@@ -1,3 +1,4 @@
+import { evaluateExpression as evalY } from '../utils/mathExpression';
 /**
  * SVG-рендер геометрических фигур и графиков.
  *
@@ -110,19 +111,6 @@ function makeTicks(min: number, max: number): number[] {
  * чтобы выражение вида "5*t" работало корректно, даже если GigaChat использует
  * не x, а имя физической величины.
  */
-function evalY(expr: string, x: number): number {
-  try {
-    const e = expr.replace(/\^/g, '**');
-    // eslint-disable-next-line no-new-func
-    return (new Function(
-      'x', 't', 'v', 'a', 's', 'T', 'F', 'I', 'U', 'R', 'P', 'Q',
-      'V', 'm', 'n', 'k', 'h', 'c', 'p', 'W', 'r', 'l', 'q',
-      `"use strict"; return (${e});`,
-    ))(x, x, x, x, x, x, x, x, x, x, x, x,
-       x, x, x, x, x, x, x, x, x, x, x) as number;
-  } catch { return NaN; }
-}
-
 // ------------------------------------------------------------------ Triangle
 
 function Triangle({ f }: { f: FigureData }) {

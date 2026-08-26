@@ -25,6 +25,12 @@ public class StudentSubmission {
     @Column(name = "variant_id", nullable = false)
     private UUID variantId;
 
+    @Column(name = "form_student_id")
+    private UUID formStudentId;
+
+    @Column(name = "attachment_token_hash", length = 64)
+    private String attachmentTokenHash;
+
     @Column(name = "student_name", nullable = false, length = 255)
     private String studentName;
 

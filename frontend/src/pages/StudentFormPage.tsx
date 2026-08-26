@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { submissionsApi } from '../api/submissions.api';
 import { RichText } from '../components/RichText';
 import { MathText } from '../components/MathText';
-import type { PublicTask, TaskAnswer } from '../types/api';
+import type { PublicTask, TaskAnswer, SubmissionReceipt } from '../types/api';
 import 'mathlive';
 import 'mathlive/static.css';
 
@@ -445,6 +445,7 @@ export function StudentFormPage() {
 
   // Файлы (до 3)
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
+  const [submissionReceipt, setSubmissionReceipt] = useState<SubmissionReceipt | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: formInfo, isLoading, isError } = useQuery({
@@ -507,15 +508,21 @@ export function StudentFormPage() {
     setSubmitting(true);
     const answersArr: TaskAnswer[] = tasks.map((t) => ({ taskId: t.taskId, answer: answers[t.taskId] ?? '' }));
     try {
-      const submission = await submissionsApi.submitAnswers(studentToken ?? token!, {
+      const submission = submissionReceipt ?? await submissionsApi.submitAnswers(studentToken ?? token!, {
         studentName: studentName || nameInput.trim() || 'Ученик',
         answers: answersArr,
       });
-      // Загружаем файлы (не блокируем done при ошибке загрузки)
+      setSubmissionReceipt(submission);
       if (stagedFiles.length > 0) {
-        await Promise.allSettled(
-          stagedFiles.map(f => submissionsApi.uploadAttachment(studentToken ?? token!, submission.id, f))
+        const results = await Promise.allSettled(
+          stagedFiles.map(file => submissionsApi.uploadAttachment(studentToken ?? token!, submission.id, submission.attachmentToken, file))
         );
+        const failed = stagedFiles.filter((_, index) => results[index].status === 'rejected');
+        if (failed.length) {
+          setStagedFiles(failed);
+          setSubmitError('Ответы сохранены, но некоторые файлы не загрузились. Нажмите отправку ещё раз, чтобы повторить загрузку файлов.');
+          return;
+        }
       }
       localStorage.removeItem(storageKey);
       setStep('done');

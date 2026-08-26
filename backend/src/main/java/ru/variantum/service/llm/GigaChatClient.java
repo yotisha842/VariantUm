@@ -159,11 +159,10 @@ public class GigaChatClient {
                     int statusCode = response.statusCode().value();
                     return response.bodyToMono(String.class).defaultIfEmpty("")
                             .flatMap(rawBody -> {
-                                log.info("GigaChat upload файла: HTTP {} тело: {}", statusCode,
-                                        rawBody.substring(0, Math.min(200, rawBody.length())));
+                                log.debug("GigaChat upload: HTTP {}", statusCode);
                                 if (statusCode >= 400 || rawBody.isBlank()) {
                                     return Mono.error(new LlmFailureException(
-                                            "GigaChat upload HTTP " + statusCode + ": " + rawBody, statusCode >= 500));
+                                            "GigaChat upload HTTP " + statusCode, statusCode >= 500));
                                 }
                                 try {
                                     FileUploadResp resp = objectMapper.readValue(rawBody, FileUploadResp.class);
@@ -204,10 +203,7 @@ public class GigaChatClient {
                     return response.bodyToMono(String.class)
                             .defaultIfEmpty("")
                             .flatMap(rawBody -> {
-                                log.info("GigaChat completion ответ: HTTP {} тело({} символов): {}",
-                                        statusCode,
-                                        rawBody.length(),
-                                        rawBody.substring(0, Math.min(300, rawBody.length())).replace("\n", "↵"));
+                                log.debug("GigaChat completion: HTTP {}, {} characters", statusCode, rawBody.length());
 
                                 if (statusCode >= 400) {
                                     // 429 — rate-limit, ретраябельно (backoff поможет)
@@ -215,7 +211,7 @@ public class GigaChatClient {
                                     // 402/4xx — нет смысла ретрировать, нужен фолбэк на Lite
                                     boolean retryable = statusCode >= 500 || statusCode == 429;
                                     return Mono.error(new LlmFailureException(
-                                            "GigaChat HTTP " + statusCode + ": " + rawBody, retryable));
+                                            "GigaChat HTTP " + statusCode, retryable));
                                 }
                                 if (rawBody.isBlank()) {
                                     return Mono.error(new LlmFailureException("GigaChat вернул пустое тело", true));
@@ -288,13 +284,11 @@ public class GigaChatClient {
                     return response.bodyToMono(String.class)
                             .defaultIfEmpty("")
                             .flatMap(rawBody -> {
-                                log.info("GigaChat auth ответ: HTTP {} тело: {}",
-                                        statusCode,
-                                        rawBody.substring(0, Math.min(300, rawBody.length())));
+                                log.debug("GigaChat auth: HTTP {}", statusCode);
 
                                 if (statusCode >= 400) {
                                     return Mono.error(new LlmFailureException(
-                                            "GigaChat auth HTTP " + statusCode + ": " + rawBody, false));
+                                            "GigaChat auth HTTP " + statusCode, false));
                                 }
                                 if (rawBody.isBlank()) {
                                     return Mono.error(new LlmFailureException(
@@ -304,7 +298,7 @@ public class GigaChatClient {
                                     TokenResponse tokenResp = objectMapper.readValue(rawBody, TokenResponse.class);
                                     if (tokenResp.accessToken() == null || tokenResp.accessToken().isBlank()) {
                                         return Mono.error(new LlmFailureException(
-                                                "GigaChat auth: access_token пустой. Ответ: " + rawBody, false));
+                                                "GigaChat auth: access_token отсутствует", false));
                                     }
                                     Instant validUntil = tokenResp.expiresAt() > 0
                                             ? Instant.ofEpochMilli(tokenResp.expiresAt()).minusSeconds(60)
@@ -314,7 +308,7 @@ public class GigaChatClient {
                                     return Mono.just(tokenResp.accessToken());
                                 } catch (Exception e) {
                                     return Mono.error(new LlmFailureException(
-                                            "Ошибка парсинга токена GigaChat: " + e.getMessage() + ". Тело: " + rawBody, false));
+                                            "Некорректный ответ авторизации GigaChat", false));
                                 }
                             });
                 });

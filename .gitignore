@@ -64,3 +64,9 @@ backend/src/main/resources/application-local.yml
 .claude/
 memory/
 worker/target/
+
+# Generated TypeScript build metadata and local logs
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+logs.txt

@@ -19,6 +19,11 @@ import ru.variantum.exception.ResourceNotFoundException;
 import ru.variantum.repository.*;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.MediaType;
+import ru.variantum.security.TokenSecrets;
+import ru.variantum.util.UploadValidation;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -181,11 +186,13 @@ public class FormService {
     }
 
     @Transactional
-    public SubmissionResponse submitAnswers(String token, SubmitAnswersRequest req) {
+    public SubmissionReceiptResponse submitAnswers(String token, SubmitAnswersRequest req) {
         UUID variantId;
         UUID assignmentId;
+        UUID formStudentId = null;
+        String studentName = req.studentName().trim();
 
-        Optional<FormStudent> studentOpt = formStudentRepository.findByAccessToken(token);
+        Optional<FormStudent> studentOpt = formStudentRepository.findByAccessTokenForUpdate(token);
         if (studentOpt.isPresent()) {
             FormStudent formStudent = studentOpt.get();
             if (studentSubmissionRepository.existsByAssignmentIdAndStudentName(
@@ -194,6 +201,8 @@ public class FormService {
             }
             variantId = formStudent.getVariantId();
             assignmentId = formStudent.getAssignmentId();
+            formStudentId = formStudent.getId();
+            studentName = formStudent.getFullName();
         } else {
             FormVariantToken vt = formVariantTokenRepository.findByAccessToken(token)
                     .orElseThrow(() -> new ResourceNotFoundException("Ссылка недействительна"));
@@ -204,31 +213,45 @@ public class FormService {
         List<Task> tasks = taskRepository.findByVariantIdOrderByIndexInVariantAsc(variantId);
         Variant variant = variantRepository.findById(variantId).orElseThrow();
 
+        String attachmentToken = generateToken();
+        Set<UUID> taskIds = tasks.stream().map(Task::getId).collect(Collectors.toSet());
+        Set<UUID> answered = new HashSet<>();
+        for (var answer : req.answers()) {
+            if (!taskIds.contains(answer.taskId()) || !answered.add(answer.taskId())) {
+                throw new IllegalArgumentException("Неверное или повторяющееся задание в ответах");
+            }
+        }
         StudentSubmission submission = StudentSubmission.builder()
                 .assignmentId(assignmentId)
                 .variantId(variantId)
-                .studentName(req.studentName())
+                .studentName(studentName)
+                .formStudentId(formStudentId)
+                .attachmentTokenHash(TokenSecrets.hash(attachmentToken))
                 .answersJson(toJson(req.answers()))
                 .autoScore(processAutoScore(tasks, req.answers()))
                 .build();
         submission = studentSubmissionRepository.save(submission);
-        return toSubmissionResponse(submission, variant.getIndexInProject(), tasks);
+        return new SubmissionReceiptResponse(submission.getId(), submission.getSubmittedAt(), attachmentToken);
     }
 
     // ── Вложения (публичный эндпоинт, валидируется по токену) ────────────────
 
     @Transactional
-    public AttachmentInfoResponse uploadAttachment(String token, UUID submissionId, MultipartFile file) {
-        StudentSubmission submission = studentSubmissionRepository.findById(submissionId)
+    public AttachmentInfoResponse uploadAttachment(String token, UUID submissionId, String attachmentToken, MultipartFile file) {
+        StudentSubmission submission = studentSubmissionRepository.findByIdForUpdate(submissionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Работа не найдена"));
         validateTokenOwnsSubmission(token, submission);
+        if (!TokenSecrets.matches(attachmentToken, submission.getAttachmentTokenHash())) {
+            throw new ResourceNotFoundException("Файл не принадлежит этой работе");
+        }
+        UploadValidation.validate(file);
 
         if (attachmentRepository.countBySubmissionId(submissionId) >= MAX_ATTACHMENTS) {
             throw new IllegalStateException("Максимум " + MAX_ATTACHMENTS + " файла на работу");
         }
 
-        String fileName = file.getOriginalFilename() != null ? file.getOriginalFilename() : "file";
-        String mimeType = file.getContentType() != null ? file.getContentType() : "application/octet-stream";
+        String fileName = UploadValidation.filename(file.getOriginalFilename());
+        String mimeType = UploadValidation.contentType(file);
 
         try {
             StudentSubmissionAttachment attachment = StudentSubmissionAttachment.builder()
@@ -258,21 +281,21 @@ public class FormService {
                 .filter(a -> a.getSubmissionId().equals(submissionId))
                 .orElseThrow(() -> new ResourceNotFoundException("Файл не найден"));
 
-        String disposition = "inline; filename=\"" + attachment.getFileName() + "\"";
+        String disposition = ContentDisposition.attachment().filename(attachment.getFileName(), StandardCharsets.UTF_8).build().toString();
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_TYPE, attachment.getMimeType())
+                .header("X-Content-Type-Options", "nosniff")
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
                 .body(attachment.getFileData());
     }
 
     private void validateTokenOwnsSubmission(String token, StudentSubmission submission) {
-        UUID assignmentId = submission.getAssignmentId();
-        if (formStudentRepository.findByAccessToken(token)
-                .map(s -> s.getAssignmentId().equals(assignmentId)).orElse(false)) return;
-        if (formVariantTokenRepository.findByAccessToken(token)
-                .map(vt -> vt.getAssignmentId().equals(assignmentId)).orElse(false)) return;
-        if (formAssignmentRepository.findByAccessToken(token)
-                .map(a -> a.getId().equals(assignmentId)).orElse(false)) return;
+        if (submission.getFormStudentId() != null) {
+            if (formStudentRepository.findByAccessToken(token)
+                    .map(student -> student.getId().equals(submission.getFormStudentId())).orElse(false)) return;
+        } else if (formVariantTokenRepository.findByAccessToken(token)
+                .map(variant -> variant.getAssignmentId().equals(submission.getAssignmentId())
+                        && variant.getVariantId().equals(submission.getVariantId())).orElse(false)) return;
         throw new ResourceNotFoundException("Токен не соответствует работе");
     }
 

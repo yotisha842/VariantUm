@@ -292,3 +292,5 @@ export type CreateProjectRequest =
         customPrompt?: string;
       };
     };
+
+export type SubmissionReceipt = { id: string; submittedAt: string; attachmentToken: string };

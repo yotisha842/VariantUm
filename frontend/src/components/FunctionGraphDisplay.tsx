@@ -1,3 +1,4 @@
+import { evaluateExpression as evalFn } from '../utils/mathExpression';
 /**
  * Отображает график функции y = f(x) как inline SVG.
  * Принимает JSON-конфиг: { fn, xMin, xMax, yMin, yMax }.
@@ -18,43 +19,6 @@ const PAD_L = 45, PAD_R = 15, PAD_T = 15, PAD_B = 35;
 const PLOT_W = W - PAD_L - PAD_R;
 const PLOT_H = H - PAD_T - PAD_B;
 const SAMPLES = 300;
-
-function evalFn(expr: string, x: number): number {
-  try {
-    if (!expr || expr.length > 200) return NaN;
-    // Заменяем математические функции на Math.*
-    const sanitized = expr
-      // Вставляем 0 перед унарным минусом (в начале или после открывающей скобки/оператора),
-      // чтобы JS не выдавал SyntaxError при -(expr)**n и вычислял -(x^2), а не (-x)^2
-      .replace(/(^|[+(,[])-/g, '$10-')
-      .replace(/\^/g, '**')
-      .replace(/\bsin\b/g, 'Math.sin')
-      .replace(/\bcos\b/g, 'Math.cos')
-      .replace(/\btan\b/g, 'Math.tan')
-      .replace(/\bsqrt\b/g, 'Math.sqrt')
-      .replace(/\babs\b/g, 'Math.abs')
-      .replace(/\bln\b/g, 'Math.log')
-      .replace(/\blog\b/g, 'Math.log10')
-      .replace(/\bexp\b/g, 'Math.exp')
-      .replace(/\bpi\b/g, 'Math.PI')
-      .replace(/\be\b/g, 'Math.E');
-    // Физические переменные (t, v, a, s, …) принимаются как псевдонимы x,
-    // чтобы GigaChat мог генерировать физические функции без ошибок
-    // eslint-disable-next-line no-new-func
-    const fn = new Function(
-      'x', 't', 'v', 'a', 's', 'T', 'F', 'I', 'U', 'R', 'P', 'Q',
-      'V', 'm', 'n', 'k', 'h', 'c', 'p', 'W', 'r', 'l', 'q',
-      `"use strict"; return (${sanitized});`,
-    );
-    const result = fn(
-      x, x, x, x, x, x, x, x, x, x, x, x,
-      x, x, x, x, x, x, x, x, x, x, x,
-    ) as number;
-    return isFinite(result) ? result : NaN;
-  } catch {
-    return NaN;
-  }
-}
 
 function toSvgX(x: number, xMin: number, xMax: number) {
   return PAD_L + (PLOT_W * (x - xMin)) / (xMax - xMin);

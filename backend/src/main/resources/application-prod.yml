@@ -2,6 +2,10 @@ spring:
   jpa:
     show-sql: false
 
+app:
+  jwt:
+    secure-cookies: true
+
 logging:
   level:
     root: INFO

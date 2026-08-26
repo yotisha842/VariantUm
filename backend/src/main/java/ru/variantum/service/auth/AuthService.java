@@ -71,7 +71,11 @@ public class AuthService {
         return toResponse(user);
     }
 
-    public void logout(HttpServletResponse response) {
+    @Transactional
+    public void logout(HttpServletRequest request, HttpServletResponse response) {
+        extractCookie(request, appProperties.jwt().cookieNameRefresh())
+                .flatMap(token -> refreshTokenRepository.findByTokenHash(hashToken(token)))
+                .ifPresent(token -> { token.setRevoked(true); refreshTokenRepository.save(token); });
         clearCookie(response, appProperties.jwt().cookieNameAccess());
         clearCookie(response, appProperties.jwt().cookieNameRefresh());
     }
@@ -103,20 +107,23 @@ public class AuthService {
         String refreshToken = extractCookie(request, appProperties.jwt().cookieNameRefresh())
                 .orElseThrow(() -> new UnauthorizedException("Refresh token не найден"));
 
-        var claims = jwtService.parse(refreshToken);
+        io.jsonwebtoken.Claims claims;
+        try {
+            claims = jwtService.parse(refreshToken);
+        } catch (io.jsonwebtoken.JwtException | IllegalArgumentException e) {
+            throw new UnauthorizedException("Недействительный refresh token");
+        }
         if (!JwtService.TOKEN_TYPE_REFRESH.equals(claims.get(JwtService.TOKEN_TYPE_CLAIM, String.class))) {
             throw new UnauthorizedException("Неверный тип токена");
         }
         UUID userId = UUID.fromString(claims.getSubject());
-
-        // Проверяем в БД (если запись есть — не отозван ли)
-        String hash = hashToken(refreshToken);
-        refreshTokenRepository.findByTokenHash(hash).ifPresent(rt -> {
-            if (rt.getRevoked()) throw new UnauthorizedException("Refresh token отозван");
-        });
-
-        // Ротация: отзываем старые, выпускаем новые
-        refreshTokenRepository.revokeAllForUser(userId);
+        RefreshToken stored = refreshTokenRepository.findByTokenHash(hashToken(refreshToken))
+                .filter(token -> token.getUserId().equals(userId)
+                        && !Boolean.TRUE.equals(token.getRevoked())
+                        && token.getExpiresAt().isAfter(OffsetDateTime.now()))
+                .orElseThrow(() -> new UnauthorizedException("Refresh token отозван или истёк"));
+        stored.setRevoked(true);
+        refreshTokenRepository.save(stored);
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Пользователь не найден"));
@@ -128,7 +135,7 @@ public class AuthService {
     private void addCookie(HttpServletResponse response, String name, String value, long maxAgeSeconds) {
         ResponseCookie cookie = ResponseCookie.from(name, value)
                 .httpOnly(true)
-                .secure(false)               // TODO: true в prod (https)
+                .secure(appProperties.jwt().secureCookies())
                 .sameSite("Lax")
                 .path("/")
                 .maxAge(maxAgeSeconds)
@@ -139,6 +146,8 @@ public class AuthService {
     private void clearCookie(HttpServletResponse response, String name) {
         ResponseCookie cookie = ResponseCookie.from(name, "")
                 .httpOnly(true)
+                .secure(appProperties.jwt().secureCookies())
+                .sameSite("Lax")
                 .path("/")
                 .maxAge(0)
                 .build();
@@ -146,15 +155,8 @@ public class AuthService {
     }
 
     private void saveRefreshTokenHash(UUID userId, String token, OffsetDateTime expiresAt) {
-        try {
-            refreshTokenRepository.save(RefreshToken.builder()
-                    .userId(userId)
-                    .tokenHash(hashToken(token))
-                    .expiresAt(expiresAt)
-                    .build());
-        } catch (Exception e) {
-            // не блокируем логин при ошибке сохранения
-        }
+        refreshTokenRepository.save(RefreshToken.builder()
+                .userId(userId).tokenHash(hashToken(token)).expiresAt(expiresAt).build());
     }
 
     private java.util.Optional<String> extractCookie(HttpServletRequest request, String name) {

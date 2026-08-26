@@ -37,7 +37,7 @@ public class FormController {
     }
 
     @PostMapping("/form/{token}/submit")
-    public SubmissionResponse submit(
+    public SubmissionReceiptResponse submit(
             @PathVariable String token,
             @Valid @RequestBody SubmitAnswersRequest req) {
         return formService.submitAnswers(token, req);
@@ -48,8 +48,9 @@ public class FormController {
     public AttachmentInfoResponse uploadAttachment(
             @PathVariable String token,
             @PathVariable UUID submissionId,
+            @RequestHeader("X-Submission-Token") String attachmentToken,
             @RequestParam("file") MultipartFile file) {
-        return formService.uploadAttachment(token, submissionId, file);
+        return formService.uploadAttachment(token, submissionId, attachmentToken, file);
     }
 
     // ── Приватные endpoints (JWT) ─────────────────────────────────────────────

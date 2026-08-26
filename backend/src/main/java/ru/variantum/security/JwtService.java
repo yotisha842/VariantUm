@@ -35,6 +35,7 @@ public class JwtService {
     public String issueAccessToken(UUID userId, String email) {
         long ttl = appProperties.jwt().accessTokenTtlSeconds();
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(userId.toString())
                 .claim("email", email)
                 .claim(TOKEN_TYPE_CLAIM, TOKEN_TYPE_ACCESS)
@@ -47,6 +48,7 @@ public class JwtService {
     public String issueRefreshToken(UUID userId) {
         long ttl = appProperties.jwt().refreshTokenTtlSeconds();
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(userId.toString())
                 .claim(TOKEN_TYPE_CLAIM, TOKEN_TYPE_REFRESH)
                 .issuedAt(Date.from(Instant.now()))

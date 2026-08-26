@@ -42,7 +42,7 @@ public class MinioStorageService {
             log.debug("MinIO stored: {}", key);
             return key;
         } catch (Exception e) {
-            throw new RuntimeException("MinIO put failed for key " + key, e);
+            throw new ru.variantum.exception.StorageException(e);
         }
     }
 
@@ -53,7 +53,7 @@ public class MinioStorageService {
                     .object(key)
                     .build());
         } catch (Exception e) {
-            throw new RuntimeException("MinIO get failed for key " + key, e);
+            throw new ru.variantum.exception.StorageException(e);
         }
     }
 
